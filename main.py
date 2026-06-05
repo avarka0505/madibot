@@ -1,152 +1,128 @@
 import telebot
 from telebot import types
+from openai import OpenAI
 import os
+import time
 
+# 🔑 ключи
 TOKEN = os.getenv("TOKEN")
-CHANNEL = "@avarka001"
+OPENAI_KEY = os.getenv("OPENAI_KEY")
 
 bot = telebot.TeleBot(TOKEN)
+client = OpenAI(api_key=OPENAI_KEY)
 
-# 👤 пользователи
+# 👤 память
 users = {}
 
-# 📚 знания
-brain = {
-    "фотосинтез": "🌿 растения превращают свет в энергию",
-    "клетка": "🧬 основа жизни",
-    "магнит": "🧲 создаёт поле и притягивает металл",
-    "скорость": "🏃‍♂️ v = s / t"
+# 🎭 режимы
+MODES = {
+    "друг": "Ты дружелюбный помощник, объясняешь просто 😊",
+    "учитель": "Ты школьный учитель, объясняешь понятно и структурно 📚",
+    "строгий": "Ты строгий учитель, отвечаешь коротко и чётко ⚠️"
 }
 
-# 🎯 тест
-tests = {
-    "bio": [
-        ("Клетка это?", "единица жизни"),
-        ("Где фотосинтез?", "в листьях"),
-        ("Что нужно растениям?", "свет")
-    ]
-}
+# 🛡 анти-спам
+last_msg_time = {}
 
-# 🔒 подписка (БЕЗ КРАША)
+CHANNEL = "@avarka001"
+
+# 🔒 подписка
 def is_subscribed(user_id):
     try:
         m = bot.get_chat_member(CHANNEL, user_id)
         return m.status in ["member", "administrator", "creator"]
     except:
-        return True  # чтобы бот не падал
-
-# 📢 подписка
-def subscribe(chat_id):
-    kb = types.InlineKeyboardMarkup()
-    kb.add(types.InlineKeyboardButton(
-        "📢 Подписаться",
-        url=f"https://t.me/{CHANNEL.replace('@','')}"
-    ))
-    bot.send_message(chat_id,
-        "❌ Доступ закрыт!\nПодпишись на канал 👇",
-        reply_markup=kb
-    )
+        return True
 
 # 🎮 меню
 def menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("🧠 AI", "📚 Урок")
     kb.row("🎯 Тест", "🏆 Профиль")
-    kb.row("🥇 Топ")
+    kb.row("🎭 Режим")
     return kb
 
 # 🚀 старт
 @bot.message_handler(commands=['start'])
 def start(m):
-    if not is_subscribed(m.from_user.id):
-        subscribe(m.chat.id)
-        return
-
-    users.setdefault(m.chat.id, {"xp":0,"level":1,"score":0})
+    users.setdefault(m.chat.id, {
+        "xp": 0,
+        "level": 1,
+        "score": 0,
+        "mode": "друг",
+        "history": []
+    })
 
     bot.send_message(m.chat.id,
-        "👑 GOD BOT СТАБИЛЬНАЯ ВЕРСИЯ\nДобро пожаловать 🚀",
+        "🤖 ULTRA GOD BOT ЗАПУЩЕН 🚀",
         reply_markup=menu()
     )
 
-# 🧠 AI
-@bot.message_handler(func=lambda m: m.text == "🧠 AI")
-def ai(m):
-    bot.send_message(m.chat.id,
-        "✍️ Напиши: объясни + тема"
+# 🎭 режим
+@bot.message_handler(func=lambda m: m.text == "🎭 Режим")
+def mode_menu(m):
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("друг", "учитель", "строгий")
+    bot.send_message(m.chat.id, "Выбери режим 🎭", reply_markup=kb)
+
+@bot.message_handler(func=lambda m: m.text in MODES)
+def set_mode(m):
+    u = users.setdefault(m.chat.id, {})
+    u["mode"] = m.text
+    bot.send_message(m.chat.id, f"✅ Режим: {m.text}")
+
+# 🧠 ChatGPT
+def ask_ai(user_id, text):
+    u = users[user_id]
+
+    u["history"].append({"role": "user", "content": text})
+
+    messages = [
+        {"role": "system", "content": MODES.get(u.get("mode", "друг"))}
+    ] + u["history"][-10:]
+
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=messages
     )
 
-@bot.message_handler(func=lambda m: m.text and m.text.startswith("объясни"))
-def explain(m):
-    if not is_subscribed(m.from_user.id):
-        subscribe(m.chat.id)
-        return
+    answer = res.choices[0].message.content
 
-    topic = m.text.replace("объясни", "").strip().lower()
-    u = users.setdefault(m.chat.id, {"xp":0,"level":1,"score":0})
+    u["history"].append({"role": "assistant", "content": answer})
 
-    answer = brain.get(topic, "🤔 Это школьная тема")
+    return answer
 
+# 💬 обработка
+@bot.message_handler(func=lambda m: True)
+def handle(m):
+
+    u = users.setdefault(m.chat.id, {
+        "xp": 0,
+        "level": 1,
+        "score": 0,
+        "mode": "друг",
+        "history": []
+    })
+
+    # 🛡 анти-спам
+    now = time.time()
+    if m.chat.id in last_msg_time:
+        if now - last_msg_time[m.chat.id] < 1:
+            return
+    last_msg_time[m.chat.id] = now
+
+    try:
+        answer = ask_ai(m.chat.id, m.text)
+    except:
+        answer = "⚠️ ошибка AI"
+
+    # 🎮 XP
     u["xp"] += 1
-
     if u["xp"] % 5 == 0:
         u["level"] += 1
         bot.send_message(m.chat.id, "🏆 LEVEL UP!")
 
-    bot.send_message(m.chat.id, f"{answer}\n\n⭐ +1 XP")
+    bot.send_message(m.chat.id, answer + "\n\n⭐ +1 XP")
 
-# 📚 урок
-@bot.message_handler(func=lambda m: m.text == "📚 Урок")
-def lesson(m):
-    bot.send_message(m.chat.id, "📖 Напиши: объясни клетка")
-
-# 🎯 тест
-@bot.message_handler(func=lambda m: m.text == "🎯 Тест")
-def test(m):
-    users.setdefault(m.chat.id, {"xp":0,"level":1,"score":0})
-    users[m.chat.id]["score"] = 0
-
-    q, a = tests["bio"][0]
-    msg = bot.send_message(m.chat.id, "❓ " + q)
-    bot.register_next_step_handler(msg, check_test, a)
-
-def check_test(m, correct):
-    u = users.setdefault(m.chat.id, {"xp":0,"level":1,"score":0})
-
-    if m.text and m.text.lower() == correct:
-        u["score"] += 1
-        u["xp"] += 1
-        bot.send_message(m.chat.id, "✔️ правильно!")
-    else:
-        bot.send_message(m.chat.id, f"❌ ответ: {correct}")
-
-    bot.send_message(m.chat.id, f"📊 Баллы: {u['score']}")
-
-# 👤 профиль
-@bot.message_handler(func=lambda m: m.text == "🏆 Профиль")
-def profile(m):
-    u = users.get(m.chat.id, {"xp":0,"level":1,"score":0})
-
-    bot.send_message(m.chat.id,
-        f"👤 ПРОФИЛЬ\n\n⭐ XP: {u['xp']}\n🏆 Level: {u['level']}\n📊 Score: {u['score']}"
-    )
-
-# 🥇 топ
-@bot.message_handler(func=lambda m: m.text == "🥇 Топ")
-def top(m):
-    if not users:
-        bot.send_message(m.chat.id, "Пока игроков нет 😄")
-        return
-
-    sorted_users = sorted(users.items(),
-                          key=lambda x: x[1]["xp"],
-                          reverse=True)
-
-    text = "🥇 ТОП ИГРОКОВ:\n\n"
-    for i, (uid, d) in enumerate(sorted_users[:10], 1):
-        text += f"{i}. XP {d['xp']} | LVL {d['level']}\n"
-
-    bot.send_message(m.chat.id, text)
-
-# 🚀 ВАЖНО ДЛЯ RAILWAY
+# 🚀 запуск
 bot.infinity_polling()
