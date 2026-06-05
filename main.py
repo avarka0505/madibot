@@ -8,11 +8,19 @@ bot = TeleBot(BOT_TOKEN)
 # 🔒 проверка подписки (защита от обхода)
 def is_subscribed(user_id):
     try:
-        member = bot.get_chat_member(CHANNEL, user_id)
-        return member.status in ["member", "creator", "administrator"]
-    except:
+        chat = bot.get_chat_member(CHANNEL, user_id)
+        print("STATUS:", chat.status)
+
+        if chat.status in ["creator", "administrator"]:
+            return True
+        if chat.status == "member":
+            return True
+
         return False
 
+    except Exception as e:
+        print("ERROR:", e)
+        return False
 # 🎮 красивое меню
 def main_menu():
     kb = types.InlineKeyboardMarkup(row_width=1)
@@ -26,6 +34,7 @@ def main_menu():
 @bot.message_handler(commands=['start'])
 def start(message):
     user_id = message.chat.id
+    bot.send_message(user_id, f"STATUS: {is_subscribed(user_id)}")
 
     if not is_subscribed(user_id):
         kb = types.InlineKeyboardMarkup(row_width=1)
