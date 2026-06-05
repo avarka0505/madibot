@@ -1,6 +1,6 @@
 from telebot import TeleBot, types
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "8903906713:AAFzgXutjbqOPL2B7osbWb8YpluZJ4siiog"
 CHANNEL = "@avarka001"
 
 bot = TeleBot(BOT_TOKEN)
