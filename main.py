@@ -3,38 +3,107 @@ from telebot import types
 from openai import OpenAI
 import os
 import time
+import traceback
+import json
 
-# 🔑 ключи
+# ======================
+# 🔑 KEYS
+# ======================
 TOKEN = os.getenv("TOKEN")
 OPENAI_KEY = os.getenv("OPENAI_KEY")
 
-bot = telebot.TeleBot(TOKEN)
-client = OpenAI(api_key=OPENAI_KEY)
+# ======================
+# 🤖 INIT SAFE
+# ======================
+bot = None
+client = None
 
-# 👤 память
-users = {}
+try:
+    if TOKEN:
+        bot = telebot.TeleBot(TOKEN)
+except Exception as e:
+    print("BOT INIT ERROR:", e)
 
-# 🎭 режимы
-MODES = {
-    "друг": "Ты дружелюбный помощник, объясняешь просто 😊",
-    "учитель": "Ты школьный учитель, объясняешь понятно и структурно 📚",
-    "строгий": "Ты строгий учитель, отвечаешь коротко и чётко ⚠️"
-}
+try:
+    if OPENAI_KEY:
+        client = OpenAI(api_key=OPENAI_KEY)
+except Exception as e:
+    print("OPENAI INIT ERROR:", e)
 
-# 🛡 анти-спам
+# ======================
+# 💾 FILE STORAGE (NO DB NEEDED)
+# ======================
+DATA_FILE = "users.json"
+
+def load_users():
+    try:
+        if os.path.exists(DATA_FILE):
+            with open(DATA_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except:
+        pass
+    return {}
+
+def save_users():
+    try:
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(users, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print("SAVE ERROR:", e)
+
+users = load_users()
 last_msg_time = {}
 
-CHANNEL = "@avarka001"
+# ======================
+# 🎭 MODES
+# ======================
+MODES = {
+    "друг": "Ты дружелюбный помощник 😊 объясняй просто",
+    "учитель": "Ты учитель 📚 объясняй структурно",
+    "строгий": "Ты строгий учитель ⚠️ отвечай кратко"
+}
 
-# 🔒 подписка
-def is_subscribed(user_id):
+# ======================
+# 🧠 AI (ULTRA SAFE)
+# ======================
+def ask_ai(user_id, text):
     try:
-        m = bot.get_chat_member(CHANNEL, user_id)
-        return m.status in ["member", "administrator", "creator"]
-    except:
-        return True
+        if not client:
+            return "⚠️ AI не подключён"
 
-# 🎮 меню
+        u = users.setdefault(str(user_id), {
+            "xp": 0,
+            "level": 1,
+            "mode": "друг",
+            "history": []
+        })
+
+        u["history"].append({"role": "user", "content": text})
+
+        messages = [
+            {"role": "system", "content": MODES.get(u["mode"], MODES["друг"])}
+        ] + u["history"][-8:]
+
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages
+        )
+
+        answer = res.choices[0].message.content
+
+        u["history"].append({"role": "assistant", "content": answer})
+
+        save_users()
+        return answer
+
+    except Exception as e:
+        print("AI ERROR:", e)
+        traceback.print_exc()
+        return "⚠️ AI временно недоступен"
+
+# ======================
+# 🎮 MENU
+# ======================
 def menu():
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("🧠 AI", "📚 Урок")
@@ -42,87 +111,109 @@ def menu():
     kb.row("🎭 Режим")
     return kb
 
-# 🚀 старт
-@bot.message_handler(commands=['start'])
+# ======================
+# 🚀 START
+# ======================
+@bot.message_handler(commands=["start"])
 def start(m):
-    users.setdefault(m.chat.id, {
-        "xp": 0,
-        "level": 1,
-        "score": 0,
-        "mode": "друг",
-        "history": []
-    })
+    try:
+        uid = str(m.chat.id)
 
-    bot.send_message(m.chat.id,
-        "🤖 ULTRA GOD BOT ЗАПУЩЕН 🚀",
-        reply_markup=menu()
-    )
+        users.setdefault(uid, {
+            "xp": 0,
+            "level": 1,
+            "mode": "друг",
+            "history": []
+        })
 
-# 🎭 режим
+        save_users()
+
+        bot.send_message(
+            m.chat.id,
+            "🤖 ULTRA PRO MAX GOD MODE BOT ⚡",
+            reply_markup=menu()
+        )
+
+    except Exception as e:
+        print("START ERROR:", e)
+
+# ======================
+# 🎭 MODE
+# ======================
 @bot.message_handler(func=lambda m: m.text == "🎭 Режим")
 def mode_menu(m):
-    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.row("друг", "учитель", "строгий")
-    bot.send_message(m.chat.id, "Выбери режим 🎭", reply_markup=kb)
+    try:
+        kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+        kb.row("друг", "учитель", "строгий")
+        bot.send_message(m.chat.id, "Выбери режим 🎭", reply_markup=kb)
+    except:
+        pass
 
 @bot.message_handler(func=lambda m: m.text in MODES)
 def set_mode(m):
-    u = users.setdefault(m.chat.id, {})
-    u["mode"] = m.text
-    bot.send_message(m.chat.id, f"✅ Режим: {m.text}")
+    try:
+        uid = str(m.chat.id)
+        users.setdefault(uid, {})["mode"] = m.text
+        save_users()
+        bot.send_message(m.chat.id, f"✅ Режим: {m.text}")
+    except:
+        pass
 
-# 🧠 ChatGPT
-def ask_ai(user_id, text):
-    u = users[user_id]
-
-    u["history"].append({"role": "user", "content": text})
-
-    messages = [
-        {"role": "system", "content": MODES.get(u.get("mode", "друг"))}
-    ] + u["history"][-10:]
-
-    res = client.chat.completions.create(
-       model="gpt-3.5-turbo",
-        messages=messages
-    )
-
-    answer = res.choices[0].message.content
-
-    u["history"].append({"role": "assistant", "content": answer})
-
-    return answer
-
-# 💬 обработка
+# ======================
+# 💬 MAIN HANDLER (IMMORTAL)
+# ======================
 @bot.message_handler(func=lambda m: True)
 def handle(m):
-
-    u = users.setdefault(m.chat.id, {
-        "xp": 0,
-        "level": 1,
-        "score": 0,
-        "mode": "друг",
-        "history": []
-    })
-
-    # 🛡 анти-спам
-    now = time.time()
-    if m.chat.id in last_msg_time:
-        if now - last_msg_time[m.chat.id] < 1:
-            return
-    last_msg_time[m.chat.id] = now
-
     try:
-        answer = ask_ai(m.chat.id, m.text)
-    except:
-        answer = "⚠️ ошибка AI"
+        uid = str(m.chat.id)
 
-    # 🎮 XP
-    u["xp"] += 1
-    if u["xp"] % 5 == 0:
-        u["level"] += 1
-        bot.send_message(m.chat.id, "🏆 LEVEL UP!")
+        # anti spam
+        now = time.time()
+        if uid in last_msg_time:
+            if now - last_msg_time[uid] < 1:
+                return
+        last_msg_time[uid] = now
 
-    bot.send_message(m.chat.id, answer + "\n\n⭐ +1 XP")
+        u = users.setdefault(uid, {
+            "xp": 0,
+            "level": 1,
+            "mode": "друг",
+            "history": []
+        })
 
-# 🚀 запуск
-bot.infinity_polling()
+        answer = ask_ai(uid, m.text)
+
+        u["xp"] += 1
+        if u["xp"] % 5 == 0:
+            u["level"] += 1
+            try:
+                bot.send_message(m.chat.id, "🏆 LEVEL UP!")
+            except:
+                pass
+
+        try:
+            bot.send_message(m.chat.id, f"{answer}\n\n⭐ +1 XP")
+        except:
+            pass
+
+        save_users()
+
+    except Exception as e:
+        print("HANDLER ERROR:", e)
+        traceback.print_exc()
+        try:
+            bot.send_message(m.chat.id, "⚠️ временная ошибка, попробуй снова")
+        except:
+            pass
+
+# ======================
+# 🔄 IMMORTAL POLLING
+# ======================
+print("🚀 GOD MODE BOT STARTED")
+
+while True:
+    try:
+        bot.infinity_polling(skip_pending=True)
+    except Exception as e:
+        print("CRASH RECOVERED:", e)
+        time.sleep(2)
