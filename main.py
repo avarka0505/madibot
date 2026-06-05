@@ -143,22 +143,38 @@ def handle(m):
             "history": []
         })
 
-        answer = ask_ai(uid, m.text)
+      def ask_ai(uid, text):
+    try:
+        if client is None:
+            return "⚠️ AI не подключён (проверь OPENAI_KEY)"
 
-        u["xp"] += 1
-        if u["xp"] % 5 == 0:
-            u["level"] += 1
-            bot.send_message(m.chat.id, "🏆 LEVEL UP!")
+        u = users.setdefault(uid, {
+            "xp": 0,
+            "level": 1,
+            "mode": "друг",
+            "history": []
+        })
 
-        bot.send_message(m.chat.id, f"{answer}\n\n⭐ +1 XP")
+        u["history"].append({"role": "user", "content": text})
+
+        messages = [
+            {"role": "system", "content": MODES.get(u.get("mode", "друг"))}
+        ] + u["history"][-6:]
+
+        res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages
+        )
+
+        answer = res.choices[0].message.content
+
+        u["history"].append({"role": "assistant", "content": answer})
+
+        return answer
 
     except Exception as e:
-        print("HANDLER ERROR:", e)
-        traceback.print_exc()
-        try:
-            bot.send_message(m.chat.id, "⚠️ ошибка, попробуй снова")
-        except:
-            pass
+        print("AI ERROR:", e)
+        return "⚠️ AI временно недоступен, попробуй позже"
 
 # ======================
 # 🔄 IMMORTAL LOOP
