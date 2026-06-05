@@ -1,93 +1,161 @@
-from telebot import TeleBot, types
+import telebot
+from telebot import types
 
-BOT_TOKEN = "8903906713:AAFzgXutjbqOPL2B7osbWb8YpluZJ4siiog"
+TOKEN = "8903906713:AAG_ooNjXP6k5wos2Q0OGnAVXgloLhxqUDg"
 CHANNEL = "@avarka001"
 
-bot = TeleBot(BOT_TOKEN)
+bot = telebot.TeleBot(TOKEN)
 
-# 🔒 проверка подписки (защита от обхода)
+# 👤 пользователи
+users = {}
+
+# 📚 база знаний
+brain = {
+    "фотосинтез": "🌿 растения превращают свет в энергию",
+    "клетка": "🧬 основа жизни",
+    "магнит": "🧲 создаёт поле и притягивает металл",
+    "скорость": "🏃‍♂️ v = s / t"
+}
+
+# 🎯 тест
+tests = {
+    "bio": [
+        ("Клетка это?", "единица жизни"),
+        ("Где фотосинтез?", "в листьях"),
+        ("Что нужно растениям?", "свет")
+    ]
+}
+
+# 🔒 подписка
 def is_subscribed(user_id):
     try:
-        chat = bot.get_chat_member(CHANNEL, user_id)
-        print("STATUS:", chat.status)
-
-        if chat.status in ["creator", "administrator"]:
-            return True
-        if chat.status == "member":
-            return True
-
+        m = bot.get_chat_member(CHANNEL, user_id)
+        return m.status in ["member", "administrator", "creator"]
+    except:
         return False
 
-    except Exception as e:
-        print("ERROR:", e)
-        return False
-# 🎮 красивое меню
-def main_menu():
-    kb = types.InlineKeyboardMarkup(row_width=1)
-    kb.add(
-        types.InlineKeyboardButton("🎬 Получить видео", callback_data="video"),
-        types.InlineKeyboardButton("ℹ️ Помощь", callback_data="help")
+# 📢 подписка экран
+def subscribe(chat_id):
+    kb = types.InlineKeyboardMarkup()
+    kb.add(types.InlineKeyboardButton(
+        "📢 Подписаться",
+        url=f"https://t.me/{CHANNEL.replace('@','')}"
+    ))
+    bot.send_message(chat_id,
+        "❌ ДОСТУП ЗАКРЫТ\nПодпишись на канал 👇",
+        reply_markup=kb
     )
+
+# 🎮 меню
+def menu():
+    kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    kb.row("🧠 AI", "📚 Урок")
+    kb.row("🎯 Тест", "🏆 Профиль")
+    kb.row("🥇 Топ")
     return kb
 
 # 🚀 старт
 @bot.message_handler(commands=['start'])
-def start(message):
-    user_id = message.chat.id
-    bot.send_message(user_id, f"STATUS: {is_subscribed(user_id)}")
-
-    if not is_subscribed(user_id):
-        kb = types.InlineKeyboardMarkup(row_width=1)
-        kb.add(
-            types.InlineKeyboardButton(
-                "📢 Подписаться на канал",
-                url=f"https://t.me/{CHANNEL.replace('@','')}"
-            ),
-            types.InlineKeyboardButton(
-                "✅ Я подписался",
-                callback_data="check_sub"
-            )
-        )
-
-        bot.send_message(
-            user_id,
-            "❌ Чтобы пользоваться ботом, подпишись на канал:",
-            reply_markup=kb
-        )
+def start(m):
+    if not is_subscribed(m.from_user.id):
+        subscribe(m.chat.id)
         return
 
-    bot.send_message(
-        user_id,
-        "✅ Добро пожаловать! Выбери действие 👇",
-        reply_markup=main_menu()
+    users.setdefault(m.chat.id, {"xp": 0, "level": 1, "score": 0})
+
+    bot.send_message(m.chat.id,
+        "👑 GOD BOT АКТИВЕН\nДобро пожаловать 🚀",
+        reply_markup=menu()
     )
 
-# 🔘 кнопки
-@bot.callback_query_handler(func=lambda call: True)
-def callback(call):
-    user_id = call.message.chat.id
+# 🧠 AI режим
+@bot.message_handler(func=lambda m: m.text == "🧠 AI")
+def ai(m):
+    bot.send_message(m.chat.id,
+        "✍️ Напиши: объясни + тема"
+    )
 
-    # проверка подписки
-    if call.data == "check_sub":
-        if is_subscribed(user_id):
-            bot.send_message(user_id, "✅ Отлично! Доступ открыт 💥", reply_markup=main_menu())
-        else:
-            bot.answer_callback_query(call.id, "❌ Ты ещё не подписан!", show_alert=True)
+@bot.message_handler(func=lambda m: m.text and m.text.startswith("объясни"))
+def explain(m):
+    if not is_subscribed(m.from_user.id):
+        subscribe(m.chat.id)
+        return
 
-    # видео
-    elif call.data == "video":
-        if not is_subscribed(user_id):
-            bot.answer_callback_query(call.id, "❌ Сначала подпишись!", show_alert=True)
-            return
+    topic = m.text.replace("объясни", "").strip().lower()
 
-        bot.send_video(
-            user_id,
-            "https://file-examples.com/storage/fe3a3f2b6d6f/video.mp4",
-            caption="🎬 Вот твой контент!"
-        )
+    u = users.setdefault(m.chat.id, {"xp":0,"level":1,"score":0})
 
-    # помощь
-    elif call.data == "help":
-        bot.send_message(user_id, "ℹ️ Просто подпишись и получи доступ к контенту 💖")
+    answer = brain.get(topic,
+        "🤔 Я не уверен, но это школьная тема"
+    )
 
-bot.infinity_polling()
+    u["xp"] += 1
+
+    if u["xp"] % 5 == 0:
+        u["level"] += 1
+        bot.send_message(m.chat.id, "🏆 LEVEL UP!")
+
+    bot.send_message(m.chat.id,
+        f"{answer}\n\n⭐ +1 XP"
+    )
+
+# 📚 урок
+@bot.message_handler(func=lambda m: m.text == "📚 Урок")
+def lesson(m):
+    bot.send_message(m.chat.id,
+        "📖 Напиши:\n👉 объясни клетка"
+    )
+
+# 🎯 тест
+@bot.message_handler(func=lambda m: m.text == "🎯 Тест")
+def test(m):
+    users[m.chat.id]["score"] = 0
+
+    q, a = tests["bio"][0]
+    msg = bot.send_message(m.chat.id, "❓ " + q)
+    bot.register_next_step_handler(msg, check_test, a)
+
+def check_test(m, correct):
+    u = users[m.chat.id]
+
+    if m.text.lower() == correct:
+        u["score"] += 1
+        u["xp"] += 1
+        bot.send_message(m.chat.id, "✔️ правильно!")
+    else:
+        bot.send_message(m.chat.id, f"❌ ответ: {correct}")
+
+    bot.send_message(m.chat.id,
+        f"📊 Баллы: {u['score']}"
+    )
+
+# 👤 профиль
+@bot.message_handler(func=lambda m: m.text == "🏆 Профиль")
+def profile(m):
+    u = users.get(m.chat.id, {"xp":0,"level":1,"score":0})
+
+    bot.send_message(m.chat.id,
+        f"👤 ПРОФИЛЬ\n\n"
+        f"⭐ XP: {u['xp']}\n"
+        f"🏆 Level: {u['level']}\n"
+        f"📊 Score: {u['score']}"
+    )
+
+# 🥇 топ
+@bot.message_handler(func=lambda m: m.text == "🥇 Топ")
+def top(m):
+    if not users:
+        bot.send_message(m.chat.id, "Пока игроков нет 😄")
+        return
+
+    sorted_users = sorted(users.items(),
+                          key=lambda x: x[1]["xp"],
+                          reverse=True)
+
+    text = "🥇 ТОП ИГРОКОВ:\n\n"
+    for i, (uid, d) in enumerate(sorted_users[:10], 1):
+        text += f"{i}. XP {d['xp']} | LVL {d['level']}\n"
+
+    bot.send_message(m.chat.id, text)
+
+bot.polling()
